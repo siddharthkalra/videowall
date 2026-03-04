@@ -14,7 +14,8 @@ namespace VideoWallpaper.App;
 
 public sealed class WallpaperMediaWindow : Window
 {
-    private readonly MediaElement mediaElement;
+    private readonly Grid root;
+    private MediaElement mediaElement;
     private readonly DispatcherTimer playbackHealthTimer;
     private string? currentVideoPath;
     private FitMode currentFitMode = FitMode.Fill;
@@ -22,7 +23,13 @@ public sealed class WallpaperMediaWindow : Window
     private bool isPaused;
     private TimeSpan lastObservedPosition = TimeSpan.Zero;
     private int stalledTickCount;
-    private DateTime lastHardRefreshUtc = DateTime.UtcNow;
+    private DateTime lastProgressUtc = DateTime.UtcNow;
+    private DateTime lastRestartUtc = DateTime.UtcNow;
+    private DateTime lastSourceSetUtc = DateTime.UtcNow;
+    private DateTime recoveryWindowStartUtc = DateTime.UtcNow;
+    private int recoveryCountInWindow;
+    private bool isRecovering;
+    private bool hasMediaOpenedForCurrentSource;
     private bool isAttachedToWallpaperHost;
     private bool isClosed;
     private PlaybackMode currentPlaybackMode = PlaybackMode.None;
@@ -37,37 +44,10 @@ public sealed class WallpaperMediaWindow : Window
         Topmost = false;
         Title = "VideoWallpaper Playback";
 
-        mediaElement = new MediaElement
-        {
-            LoadedBehavior = MediaState.Manual,
-            UnloadedBehavior = MediaState.Manual,
-            Stretch = Stretch.UniformToFill,
-            ScrubbingEnabled = false,
-        };
-        mediaElement.MediaOpened += (_, _) =>
-        {
-            stalledTickCount = 0;
-            lastObservedPosition = TimeSpan.Zero;
-            AppLogger.Info("WallpaperMediaWindow: media opened.");
-        };
-        mediaElement.MediaEnded += (_, _) =>
-        {
-            try
-            {
-                AppLogger.Info("WallpaperMediaWindow: media ended. Restarting.");
-                RestartCurrentVideo();
-            }
-            catch (Exception ex)
-            {
-                AppLogger.Error("WallpaperMediaWindow: loop restart failed.", ex);
-            }
-        };
-        mediaElement.MediaFailed += (_, e) =>
-        {
-            AppLogger.Error($"WallpaperMediaWindow: local media failed: {e.ErrorException?.Message}", e.ErrorException);
-        };
-
-        Content = mediaElement;
+        root = new Grid();
+        mediaElement = CreateMediaElement();
+        root.Children.Add(mediaElement);
+        Content = root;
 
         playbackHealthTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         playbackHealthTimer.Tick += PlaybackHealthTimerOnTick;
@@ -94,7 +74,10 @@ public sealed class WallpaperMediaWindow : Window
             isPaused = false;
             stalledTickCount = 0;
             lastObservedPosition = TimeSpan.Zero;
-            lastHardRefreshUtc = DateTime.UtcNow;
+            lastProgressUtc = DateTime.UtcNow;
+            lastRestartUtc = DateTime.UtcNow;
+            lastSourceSetUtc = DateTime.UtcNow;
+            hasMediaOpenedForCurrentSource = false;
             mediaElement.Stop();
             mediaElement.Source = new Uri(path, UriKind.Absolute);
             mediaElement.Stretch = fit switch
@@ -117,12 +100,6 @@ public sealed class WallpaperMediaWindow : Window
             AppLogger.Error("WallpaperMediaWindow: failed to play local video.", ex);
             return Task.FromResult(false);
         }
-    }
-
-    public Task<bool> PlayYouTubeAsync(string url, bool mute)
-    {
-        AppLogger.Info("WallpaperMediaWindow: YouTube playback disabled in local-only stability mode.");
-        return Task.FromResult(false);
     }
 
     public Task ApplyMuteAsync(bool mute)
@@ -173,6 +150,8 @@ public sealed class WallpaperMediaWindow : Window
             currentVideoPath = null;
             stalledTickCount = 0;
             lastObservedPosition = TimeSpan.Zero;
+            lastProgressUtc = DateTime.UtcNow;
+            hasMediaOpenedForCurrentSource = false;
         }
         catch (Exception ex)
         {
@@ -298,8 +277,20 @@ public sealed class WallpaperMediaWindow : Window
 
     private void PlaybackHealthTimerOnTick(object? sender, EventArgs e)
     {
-        if (currentPlaybackMode != PlaybackMode.Local || isPaused || string.IsNullOrWhiteSpace(currentVideoPath))
+        if (currentPlaybackMode != PlaybackMode.Local || isPaused || string.IsNullOrWhiteSpace(currentVideoPath) || isRecovering)
         {
+            return;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+
+        if (!hasMediaOpenedForCurrentSource)
+        {
+            if ((nowUtc - lastSourceSetUtc) > TimeSpan.FromSeconds(30))
+            {
+                AttemptRecovery("media did not open in time", rebuildPlayer: true, force: true);
+            }
+
             return;
         }
 
@@ -308,53 +299,29 @@ public sealed class WallpaperMediaWindow : Window
             return;
         }
 
-        // Conservative periodic refresh to prevent long-running decoder stalls in MediaElement.
-        if ((DateTime.UtcNow - lastHardRefreshUtc) >= TimeSpan.FromSeconds(90))
-        {
-            AppLogger.Info("WallpaperMediaWindow: periodic refresh.");
-            RestartCurrentVideo();
-            lastHardRefreshUtc = DateTime.UtcNow;
-            stalledTickCount = 0;
-            lastObservedPosition = TimeSpan.Zero;
-            return;
-        }
-
         var current = mediaElement.Position;
-        var duration = mediaElement.NaturalDuration.TimeSpan;
-        var remaining = duration - current;
-
-        // Some codecs fail to raise MediaEnded reliably when attached or running long.
-        // Proactively restart as we approach the end.
-        if (remaining.TotalMilliseconds <= 400)
-        {
-            AppLogger.Info("WallpaperMediaWindow: near end-of-file. Restarting.");
-            RestartCurrentVideo();
-            lastHardRefreshUtc = DateTime.UtcNow;
-            stalledTickCount = 0;
-            lastObservedPosition = TimeSpan.Zero;
-            return;
-        }
 
         var advanced = Math.Abs((current - lastObservedPosition).TotalMilliseconds) > 120;
-        var nearBeginning = current.TotalSeconds < 1.0;
-        if (advanced || nearBeginning)
+        if (advanced)
         {
             stalledTickCount = 0;
             lastObservedPosition = current;
+            lastProgressUtc = nowUtc;
+            return;
+        }
+
+        if ((nowUtc - lastRestartUtc) <= TimeSpan.FromSeconds(10))
+        {
             return;
         }
 
         stalledTickCount++;
-        if (stalledTickCount < 5)
+        if (stalledTickCount < 8 && (nowUtc - lastProgressUtc) <= TimeSpan.FromSeconds(12))
         {
             return;
         }
 
-        AppLogger.Info("WallpaperMediaWindow: playback stall detected. Restarting media.");
-        RestartCurrentVideo();
-        lastHardRefreshUtc = DateTime.UtcNow;
-        stalledTickCount = 0;
-        lastObservedPosition = TimeSpan.Zero;
+        AttemptRecovery("playback stall detected", rebuildPlayer: false);
     }
 
     private void RestartCurrentVideo()
@@ -377,6 +344,121 @@ public sealed class WallpaperMediaWindow : Window
         mediaElement.IsMuted = isMuted;
         mediaElement.Volume = isMuted ? 0 : 1;
         mediaElement.Position = TimeSpan.Zero;
+        hasMediaOpenedForCurrentSource = false;
+        lastSourceSetUtc = DateTime.UtcNow;
         mediaElement.Play();
+        stalledTickCount = 0;
+        lastObservedPosition = TimeSpan.Zero;
+        lastProgressUtc = DateTime.UtcNow;
+        lastRestartUtc = DateTime.UtcNow;
+    }
+
+    private MediaElement CreateMediaElement()
+    {
+        var element = new MediaElement
+        {
+            LoadedBehavior = MediaState.Manual,
+            UnloadedBehavior = MediaState.Manual,
+            Stretch = Stretch.UniformToFill,
+            ScrubbingEnabled = false,
+        };
+
+        element.MediaOpened += (_, _) =>
+        {
+            stalledTickCount = 0;
+            lastObservedPosition = mediaElement.Position;
+            lastProgressUtc = DateTime.UtcNow;
+            hasMediaOpenedForCurrentSource = true;
+            AppLogger.Info("WallpaperMediaWindow: media opened.");
+        };
+        element.MediaEnded += (_, _) =>
+        {
+            try
+            {
+                AppLogger.Info("WallpaperMediaWindow: media ended. Restarting.");
+                RestartCurrentVideo();
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("WallpaperMediaWindow: loop restart failed.", ex);
+            }
+        };
+        element.MediaFailed += (_, e) =>
+        {
+            AppLogger.Error($"WallpaperMediaWindow: local media failed: {e.ErrorException?.Message}", e.ErrorException);
+            AttemptRecovery("media failure", rebuildPlayer: true, force: true);
+        };
+
+        return element;
+    }
+
+    private void RecreateMediaElement()
+    {
+        try
+        {
+            mediaElement.Stop();
+            mediaElement.Source = null;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("WallpaperMediaWindow: failed while disposing old media element.", ex);
+        }
+
+        root.Children.Clear();
+        mediaElement = CreateMediaElement();
+        root.Children.Add(mediaElement);
+    }
+
+    private void AttemptRecovery(string reason, bool rebuildPlayer, bool force = false)
+    {
+        if (isRecovering)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentVideoPath))
+        {
+            return;
+        }
+
+        isRecovering = true;
+        try
+        {
+            var nowUtc = DateTime.UtcNow;
+            if (!force && (nowUtc - lastRestartUtc) < TimeSpan.FromSeconds(20))
+            {
+                return;
+            }
+
+            if ((nowUtc - recoveryWindowStartUtc) > TimeSpan.FromMinutes(1))
+            {
+                recoveryWindowStartUtc = nowUtc;
+                recoveryCountInWindow = 0;
+            }
+
+            recoveryCountInWindow++;
+            if (recoveryCountInWindow > 10)
+            {
+                AppLogger.Error($"WallpaperMediaWindow: too many recovery attempts in one minute; keeping playback stopped. Last reason: {reason}");
+                StopPlayback();
+                return;
+            }
+
+            AppLogger.Info($"WallpaperMediaWindow: attempting recovery ({reason}), rebuild={rebuildPlayer}.");
+            if (rebuildPlayer)
+            {
+                RecreateMediaElement();
+            }
+
+            RestartCurrentVideo();
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("WallpaperMediaWindow: recovery attempt failed.", ex);
+        }
+        finally
+        {
+            isRecovering = false;
+        }
     }
 }

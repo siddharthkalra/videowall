@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VideoWallpaper.App.Infrastructure;
 using VideoWallpaper.App.Models;
@@ -34,14 +35,11 @@ public partial class MainWindow : Window
     private readonly SemaphoreSlim wallpaperTransitionLock = new(1, 1);
     private bool isPolicyTickRunning;
     private bool isAutoPausedByPolicy;
-    private bool isInitializing;
-    private bool suppressWallpaperToggleEvent;
     private bool isExiting;
 
     public MainWindow()
     {
         InitializeComponent();
-        isInitializing = true;
 
         settings = SettingsStore.Load();
         if (settings.WallpaperModeEnabled)
@@ -52,6 +50,12 @@ public partial class MainWindow : Window
         }
 
         wallpaperWindow = new WallpaperMediaWindow();
+
+        var windowIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+        if (File.Exists(windowIconPath))
+        {
+            Icon = BitmapFrame.Create(new Uri(windowIconPath, UriKind.Absolute));
+        }
 
         showHideMenuItem = new Forms.ToolStripMenuItem("Hide");
         muteMenuItem = new Forms.ToolStripMenuItem("Mute") { Checked = settings.Mute };
@@ -64,9 +68,6 @@ public partial class MainWindow : Window
         Closed += MainWindow_OnClosed;
 
         StartWithWindowsCheckBox.IsChecked = settings.StartWithWindows;
-        suppressWallpaperToggleEvent = true;
-        EnableWallpaperModeCheckBox.IsChecked = settings.WallpaperModeEnabled;
-        suppressWallpaperToggleEvent = false;
         PauseOnFullscreenCheckBox.IsChecked = settings.PauseOnFullscreen;
         PauseOnBatteryCheckBox.IsChecked = settings.PauseOnBattery;
 
@@ -75,7 +76,6 @@ public partial class MainWindow : Window
 
         SetStatus("Ready");
         AppLogger.Info("Main controller initialized.");
-        isInitializing = false;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -104,9 +104,6 @@ public partial class MainWindow : Window
         var playLocalMenuItem = new Forms.ToolStripMenuItem("Play Local");
         playLocalMenuItem.Click += (_, _) => _ = Dispatcher.InvokeAsync(StartLocalPlaybackAsync);
 
-        var playYouTubeMenuItem = new Forms.ToolStripMenuItem("Play YouTube");
-        playYouTubeMenuItem.Click += (_, _) => _ = Dispatcher.InvokeAsync(StartYouTubePlaybackAsync);
-
         var stopMenuItem = new Forms.ToolStripMenuItem("Stop");
         stopMenuItem.Click += (_, _) => Dispatcher.Invoke(StopAllPlayback);
 
@@ -117,11 +114,10 @@ public partial class MainWindow : Window
         exitMenuItem.Click += (_, _) => Dispatcher.Invoke(ExitApplication);
 
         trayIcon.Text = "VideoWallpaper";
-        trayIcon.Icon = System.Drawing.SystemIcons.Application;
+        trayIcon.Icon = LoadTrayIcon();
         trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(ToggleWindowVisibility);
         trayMenu.Items.Add(showHideMenuItem);
         trayMenu.Items.Add(playLocalMenuItem);
-        trayMenu.Items.Add(playYouTubeMenuItem);
         trayMenu.Items.Add(stopMenuItem);
         trayMenu.Items.Add(muteMenuItem);
         trayMenu.Items.Add(wallpaperModeMenuItem);
@@ -131,6 +127,34 @@ public partial class MainWindow : Window
 
         RefreshTrayMenuState();
         AppLogger.Info("Tray icon initialized.");
+    }
+
+    private System.Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            var appIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
+            if (File.Exists(appIconPath))
+            {
+                var icon = new System.Drawing.Icon(appIconPath, new System.Drawing.Size(16, 16));
+                AppLogger.Info($"Tray icon loaded from app icon: {appIconPath}");
+                return icon;
+            }
+
+            var trayIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app_tray.ico");
+            if (File.Exists(trayIconPath))
+            {
+                var icon = new System.Drawing.Icon(trayIconPath, new System.Drawing.Size(16, 16));
+                AppLogger.Info($"Tray icon loaded from tray icon: {trayIconPath}");
+                return icon;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Failed to load custom tray icon; falling back to system icon.", ex);
+        }
+
+        return System.Drawing.SystemIcons.Application;
     }
 
     private async void PolicyMonitorTimer_OnTick(object? sender, EventArgs e)
@@ -257,34 +281,9 @@ public partial class MainWindow : Window
         SetStatus("Pick video canceled.");
     }
 
-    private void SetYouTubeUrlButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        var enteredUrl = PromptForText(
-            "Set YouTube URL",
-            "Enter YouTube URL:",
-            settings.LastYouTubeUrl ?? "https://www.youtube.com/watch?v=");
-
-        if (enteredUrl is null)
-        {
-            SetStatus("Set YouTube URL canceled.");
-            return;
-        }
-
-        settings.LastYouTubeUrl = enteredUrl.Trim();
-        settings.LastSource = settings.LastYouTubeUrl;
-        SaveSettings();
-        AppLogger.Info($"Updated YouTube URL: {settings.LastYouTubeUrl}");
-        SetStatus("YouTube URL updated.");
-    }
-
     private async void PlayLocalButton_OnClick(object sender, RoutedEventArgs e)
     {
         await StartLocalPlaybackAsync();
-    }
-
-    private async void PlayYouTubeButton_OnClick(object sender, RoutedEventArgs e)
-    {
-        await StartYouTubePlaybackAsync();
     }
 
     private void StopButton_OnClick(object sender, RoutedEventArgs e)
@@ -319,18 +318,6 @@ public partial class MainWindow : Window
         SetStatus($"Pause on battery {(settings.PauseOnBattery ? "enabled" : "disabled")}.");
     }
 
-    private async void EnableWallpaperModeCheckBox_OnChanged(object sender, RoutedEventArgs e)
-    {
-        if (isInitializing || suppressWallpaperToggleEvent)
-        {
-            return;
-        }
-
-        settings.WallpaperModeEnabled = EnableWallpaperModeCheckBox.IsChecked == true;
-        SaveSettings();
-        await ApplyWallpaperModeSettingAsync();
-    }
-
     private async Task ToggleMuteAsync()
     {
         settings.Mute = !settings.Mute;
@@ -343,9 +330,6 @@ public partial class MainWindow : Window
     private async Task ToggleWallpaperModeAsync()
     {
         settings.WallpaperModeEnabled = !settings.WallpaperModeEnabled;
-        suppressWallpaperToggleEvent = true;
-        EnableWallpaperModeCheckBox.IsChecked = settings.WallpaperModeEnabled;
-        suppressWallpaperToggleEvent = false;
         SaveSettings();
         await ApplyWallpaperModeSettingAsync();
     }
@@ -361,9 +345,6 @@ public partial class MainWindow : Window
                 if (!enabled)
                 {
                     settings.WallpaperModeEnabled = false;
-                    suppressWallpaperToggleEvent = true;
-                    EnableWallpaperModeCheckBox.IsChecked = false;
-                    suppressWallpaperToggleEvent = false;
                     SaveSettings();
                     EnsureWallpaperWindow().DisableWallpaperMode(hideWindow: true);
                     SetStatus("Wallpaper mode failed. Playback host hidden.");
@@ -444,12 +425,6 @@ public partial class MainWindow : Window
         SetStatus(settings.WallpaperModeEnabled ? "Playing local wallpaper..." : "Playing local (window mode)...");
     }
 
-    private async Task StartYouTubePlaybackAsync()
-    {
-        SetStatus("YouTube playback is temporarily disabled to stabilize wallpaper mode.");
-        await Task.CompletedTask;
-    }
-
     private void EnsurePlaybackWindowVisible()
     {
         if (settings.WallpaperModeEnabled)
@@ -458,7 +433,6 @@ public partial class MainWindow : Window
             if (!enabled)
             {
                 settings.WallpaperModeEnabled = false;
-                EnableWallpaperModeCheckBox.IsChecked = false;
                 SaveSettings();
                 EnsureWallpaperWindow().DisableWallpaperMode(hideWindow: false);
                 EnsureWallpaperWindow().ShowAsStandalone();
@@ -589,78 +563,6 @@ public partial class MainWindow : Window
     private void SetStatus(string message)
     {
         StatusText.Text = message;
-    }
-
-    private string? PromptForText(string title, string prompt, string defaultValue)
-    {
-        var dialog = new Window
-        {
-            Title = title,
-            Owner = this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ResizeMode = ResizeMode.NoResize,
-            Width = 520,
-            Height = 190,
-            ShowInTaskbar = false,
-        };
-
-        var root = new System.Windows.Controls.Grid { Margin = new Thickness(12) };
-        root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
-
-        var promptBlock = new System.Windows.Controls.TextBlock
-        {
-            Text = prompt,
-            Margin = new Thickness(0, 0, 0, 8),
-        };
-        System.Windows.Controls.Grid.SetRow(promptBlock, 0);
-
-        var textBox = new System.Windows.Controls.TextBox
-        {
-            Text = defaultValue,
-            Margin = new Thickness(0, 0, 0, 12),
-            MinWidth = 460,
-        };
-        System.Windows.Controls.Grid.SetRow(textBox, 1);
-
-        var buttonPanel = new System.Windows.Controls.StackPanel
-        {
-            Orientation = System.Windows.Controls.Orientation.Horizontal,
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
-        };
-
-        var okButton = new System.Windows.Controls.Button
-        {
-            Content = "OK",
-            Width = 80,
-            Margin = new Thickness(0, 0, 8, 0),
-            IsDefault = true,
-        };
-
-        var cancelButton = new System.Windows.Controls.Button
-        {
-            Content = "Cancel",
-            Width = 80,
-            IsCancel = true,
-        };
-
-        okButton.Click += (_, _) => dialog.DialogResult = true;
-        cancelButton.Click += (_, _) => dialog.DialogResult = false;
-
-        buttonPanel.Children.Add(okButton);
-        buttonPanel.Children.Add(cancelButton);
-
-        System.Windows.Controls.Grid.SetRow(buttonPanel, 2);
-        root.Children.Add(promptBlock);
-        root.Children.Add(textBox);
-        root.Children.Add(buttonPanel);
-
-        dialog.Content = root;
-        textBox.Focus();
-        textBox.SelectAll();
-
-        return dialog.ShowDialog() == true ? textBox.Text : null;
     }
 
     [StructLayout(LayoutKind.Sequential)]

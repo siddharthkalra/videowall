@@ -11,14 +11,11 @@ public enum PlaybackMode
 {
     None,
     Local,
-    YouTube,
 }
 
 public sealed class AppSettings
 {
     public string? LastVideoPath { get; set; }
-
-    public string? LastYouTubeUrl { get; set; }
 
     public bool Mute { get; set; } = true;
 
