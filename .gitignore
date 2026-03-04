@@ -426,7 +426,6 @@ test-results/
 *.dmg
 *.app
 !VideoWallpaper.App/
-!VideoWallpaper.App/**
 
 # content below from: https://github.com/github/gitignore/blob/master/Global/macOS.gitignore
 # General
