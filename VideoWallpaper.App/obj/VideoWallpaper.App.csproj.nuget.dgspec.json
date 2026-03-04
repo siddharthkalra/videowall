@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\downloads\\videowall\\VideoWallpaper.App\\VideoWallpaper.App.csproj": {}
+  },
+  "projects": {
+    "C:\\downloads\\videowall\\VideoWallpaper.App\\VideoWallpaper.App.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\downloads\\videowall\\VideoWallpaper.App\\VideoWallpaper.App.csproj",
+        "projectName": "VideoWallpaper.App",
+        "projectPath": "C:\\downloads\\videowall\\VideoWallpaper.App\\VideoWallpaper.App.csproj",
+        "packagesPath": "C:\\Users\\siddh\\.nuget\\packages\\",
+        "outputPath": "C:\\downloads\\videowall\\VideoWallpaper.App\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\siddh\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0-windows"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0-windows7.0": {
+            "targetAlias": "net8.0-windows",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "dependencies": {
+            "Microsoft.Web.WebView2": {
+              "target": "Package",
+              "version": "[1.0.3800.47, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            },
+            "Microsoft.WindowsDesktop.App.WPF": {
+              "privateAssets": "none"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Users\\siddh\\.dotnet\\sdk\\8.0.418/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
