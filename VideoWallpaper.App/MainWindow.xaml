@@ -1,12 +1,97 @@
-﻿<Window x:Class="VideoWallpaper.App.MainWindow"
+<Window x:Class="VideoWallpaper.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:VideoWallpaper.App"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        Title="VideoWallpaper Controller"
+        Height="340"
+        Width="900"
+        MinHeight="300"
+        MinWidth="760">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
+        <Border Grid.Row="0"
+                Padding="8"
+                Margin="0,0,0,8"
+                BorderThickness="1"
+                CornerRadius="6"
+                BorderBrush="#D0D0D0">
+            <WrapPanel VerticalAlignment="Center" ItemHeight="32">
+                <Button Content="Pick Video"
+                        Margin="0,0,8,8"
+                        Padding="8,4"
+                        Click="PickVideoButton_OnClick" />
+                <Button Content="Set YouTube URL"
+                        Margin="0,0,8,8"
+                        Padding="8,4"
+                        Click="SetYouTubeUrlButton_OnClick" />
+                <Button Content="Play Local"
+                        Margin="0,0,8,8"
+                        Padding="8,4"
+                        Click="PlayLocalButton_OnClick" />
+                <Button Content="Play YouTube"
+                        Margin="0,0,8,8"
+                        Padding="8,4"
+                        Click="PlayYouTubeButton_OnClick" />
+                <Button Content="Stop"
+                        Margin="0,0,8,8"
+                        Padding="8,4"
+                        Click="StopButton_OnClick" />
+                <Button Content="Hide UI"
+                        Margin="0,0,12,8"
+                        Padding="8,4"
+                        Click="HideUiButton_OnClick" />
+                <CheckBox x:Name="EnableWallpaperModeCheckBox"
+                          Content="Enable Wallpaper Mode"
+                          VerticalAlignment="Center"
+                          Margin="0,0,12,8"
+                          Checked="EnableWallpaperModeCheckBox_OnChanged"
+                          Unchecked="EnableWallpaperModeCheckBox_OnChanged" />
+                <CheckBox x:Name="PauseOnFullscreenCheckBox"
+                          Content="Pause on Fullscreen"
+                          VerticalAlignment="Center"
+                          Margin="0,0,12,8"
+                          Checked="PauseOnFullscreenCheckBox_OnChanged"
+                          Unchecked="PauseOnFullscreenCheckBox_OnChanged" />
+                <CheckBox x:Name="PauseOnBatteryCheckBox"
+                          Content="Pause on Battery"
+                          VerticalAlignment="Center"
+                          Margin="0,0,12,8"
+                          Checked="PauseOnBatteryCheckBox_OnChanged"
+                          Unchecked="PauseOnBatteryCheckBox_OnChanged" />
+                <CheckBox x:Name="StartWithWindowsCheckBox"
+                          Content="Start with Windows (next step)"
+                          VerticalAlignment="Center"
+                          Margin="0,0,0,8"
+                          Checked="StartWithWindowsCheckBox_OnChecked"
+                          Unchecked="StartWithWindowsCheckBox_OnChecked" />
+            </WrapPanel>
+        </Border>
+
+        <Border Grid.Row="1"
+                Padding="12"
+                BorderThickness="1"
+                CornerRadius="6"
+                BorderBrush="#D0D0D0">
+            <TextBlock TextWrapping="Wrap"
+                       Foreground="#555"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center"
+                       Text="Controller UI only. Local playback is wallpaper-first and renders to desktop in Wallpaper Mode." />
+        </Border>
+
+        <Border Grid.Row="2"
+                Padding="8"
+                Margin="0,8,0,0"
+                Background="#F7F7F7"
+                CornerRadius="6">
+            <TextBlock x:Name="StatusText"
+                       Text="Ready"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center" />
+        </Border>
     </Grid>
 </Window>

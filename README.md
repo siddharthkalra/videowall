@@ -26,3 +26,13 @@ cd VideoWallpaper
 $env:PATH = "C:\Users\siddh\.dotnet;" + $env:PATH
  dotnet run --project .\VideoWallpaper.App\VideoWallpaper.App.csproj
 ```
+
+## Self-Contained EXE (No .NET runtime required on target machine)
+```powershell
+cd VideoWallpaper
+$env:PATH = "C:\Users\siddh\.dotnet;" + $env:PATH
+dotnet publish .\VideoWallpaper.App\VideoWallpaper.App.csproj -c Release -r win-x64 --self-contained true
+```
+
+Published app location:
+`.\VideoWallpaper.App\bin\Release\net8.0-windows\win-x64\publish\VideoWallpaper.App.exe`
